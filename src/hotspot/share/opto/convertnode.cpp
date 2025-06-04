@@ -63,6 +63,73 @@ const Type* Conv2BNode::Value(PhaseGVN* phase) const {
   return TypeInt::BOOL;
 }
 
+static void dump_graph(PhaseGVN* phase) {
+  Compile* C = phase->C;
+  Unique_Node_List ideal_nodes;
+
+  static int log_id = 0;
+  stringStream file_name;
+  file_name.print("/tmp/jvm_graph_%d.log", log_id++);
+
+  fileStream* graph_file_stream = new(mtInternal) fileStream(file_name.as_string());
+  graph_file_stream->print_cr("# Method holder is: %s", C->method()->holder()->name()->as_utf8());
+  graph_file_stream->print_cr("# Method name is: %s", C->method()->name()->as_utf8());
+
+  ideal_nodes.map(C->live_nodes(), nullptr);
+  ideal_nodes.push((Node*) C->root());
+
+  for( uint next = 0; next < ideal_nodes.size(); ++next ) {
+    Node* n = ideal_nodes.at(next);
+
+#ifdef PRODUCT
+    // Print id and type
+    graph_file_stream->print("%d %s === ", n->_idx, NodeClassNames[n->Opcode()]);
+
+
+    // Print inputs
+    for (unsigned int i=0; i<n->req(); i++) {
+      Node* m = n->in(i);
+      if (m != nullptr) {
+        graph_file_stream->print(" %d ", m->_idx);
+      }
+    }
+
+
+    // Print outputs and add to worklist
+    graph_file_stream->print(" [[ ");
+    for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+      Node* m = n->fast_out(i);
+      graph_file_stream->print("%d ", m->_idx);
+      ideal_nodes.push(m);
+    }
+    graph_file_stream->print("]]");
+
+
+    // Print metadata
+    const Type* t = phase->type(n);
+    if (t == nullptr) {
+        graph_file_stream->print("  Null typed");
+    } else if (t->isa_instptr() || t->isa_instklassptr()) {
+      const TypeInstPtr  *toop = t->isa_instptr();
+      const TypeInstKlassPtr *tkls = t->isa_instklassptr();
+      if (toop) {
+        graph_file_stream->print(" Oop:");
+      } else if (tkls) {
+        graph_file_stream->print(" Klass:");
+      }
+    } else if( t == Type::MEMORY ) {
+      graph_file_stream->print(" Memory:");
+    } else {
+      graph_file_stream->print(" Type base is: %d", t->base());
+    }
+
+    graph_file_stream->cr();
+#else
+    n->dump(nullptr, false, graph_file_stream, nullptr);
+#endif
+  }
+}
+
 Node* Conv2BNode::Ideal(PhaseGVN* phase, bool can_reshape) {
   if (!Matcher::match_rule_supported(Op_Conv2B)) {
     if (phase->C->post_loop_opts_phase()) {
@@ -74,6 +141,9 @@ Node* Conv2BNode::Ideal(PhaseGVN* phase, bool can_reshape) {
       } else if (t->isa_ptr()) {
         cmp = phase->transform(new CmpPNode(in(1), phase->zerocon(BasicType::T_OBJECT)));
       } else {
+        NOT_PRODUCT(in(1)->dump());
+        NOT_PRODUCT(this->dump());
+        dump_graph(phase);
         assert(false, "Unrecognized comparison for Conv2B: %s", NodeClassNames[in(1)->Opcode()]);
       }
 
