@@ -126,8 +126,15 @@ static void dump_graph(PhaseGVN* phase) {
     graph_file_stream->cr();
 #else
     n->dump(nullptr, false, graph_file_stream, nullptr);
+    for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+      Node* m = n->fast_out(i);
+      ideal_nodes.push(m);
+    }
 #endif
   }
+
+  graph_file_stream->flush();
+  delete graph_file_stream;
 }
 
 Node* Conv2BNode::Ideal(PhaseGVN* phase, bool can_reshape) {
